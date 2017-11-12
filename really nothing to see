@@ -1,0 +1,196 @@
+#  Midge Wing Length Example in Hoff.
+data<-read.csv("~/coindesk-bpi-USD-close_data-2016-11-04_2017-11-04.csv",header=T)
+
+
+
+
+
+data<-data[1:366,]
+plot(seq(1,366),data[,2])
+
+y<-diff(data[1:366,2],lag=1)
+
+df.t<-365
+err<-rt(366, df=df.t)*sqrt(sd(y)^2 * (df.t-2)/df.t) + 0
+#err<-rnorm(366,0,sd(y))
+c.val<-10000
+cval.total<-NULL
+for(i in 1:366){
+  c.val<-c.val+err[i]
+  cval.total<-c(cval.total,c.val)
+}
+plot(seq(1,366),cval.total)
+data[,2]<-cval.total
+
+comp.mat<-NULL
+g<-seq(.85,.95,by=.01)
+for(j in 1:length(g)){
+  tic<-ifelse(j==1,Sys.time(),tic)
+  indst<-NULL
+  for(d in 1:10){
+    qct<-NULL
+    for(i in (d+1):length(y)){
+      n<-length(y[(i-d):(i-1)])
+      ybar<-mean(y[(i-d):(i-1)])
+      s2<-var(y)
+      
+      mu0<-mean(y[(i-d):(i-1)])
+      k0<-1
+      s20<-var(y)
+      nu0<-1
+      
+      kn<-k0+n
+      nun<-nu0+n
+      mun<-(k0*mu0+n*ybar)/kn
+      s2n<-(nu0*s20+(n-1)*s2+k0*n*(ybar-mu0)^2/kn)/nun
+      
+      
+      s2.postsample<-1/rgamma(1000,nun/2,s2n*nun/2)
+      theta.postsample<-rnorm(1000,mun,sqrt(s2.postsample/kn))
+      qc<-quantile(theta.postsample,c((1-g[j])/2,(1+g[j])/2))
+      qct<-rbind(qct,qc)
+      
+    }
+    
+    qct<-cbind(qct,y[(d+1):365])
+    qct.count<-0
+    for(k in 1:length(qct[,1])){
+      new.c<-ifelse(qct[k,3]>qct[k,1]&qct[k,3]<qct[k,2],1,0)
+      qct.count<-qct.count+new.c
+    }
+    inds<-NULL
+    for(l in 1:length(qct[,1])){
+      ind<-0
+      ind<-ifelse(qct[l,1]>=.01*data[(l+d),2],1,ind)
+      ind<-ifelse(qct[l,2]<=-.01*data[(l+d),2],-1,ind)
+      inds<-c(inds,ind)
+    }
+    inds<-c(rep(0,d),inds)
+    indst<-cbind(indst,inds)
+  }
+  
+  #create the score for each matrix
+  score<-NULL
+  for(i in 1:length(indst[,1])){
+    rowsum<-0
+    for(h in 1:10){
+      new.val<-indst[i,h]*1/h
+      rowsum<-rowsum+new.val
+    }
+    score<-c(score,rowsum)
+  }
+  
+  
+  #determine when sales will be
+  allv<-NULL
+  for(thr in seq(.3,3,.01)){
+    hd<-1
+    usd<-0
+    btc.val<-1000/data[1,2]
+    s.count<-0
+    for(i in 1:length(score)){
+      if(hd==0 & score[i]>=thr){
+        btc.val<-(usd-.0025*usd)/data[i,2]
+        hd<-1
+        usd<-0
+        s.count<-s.count+1
+      } else if(hd==1 & score[i]<=-thr){
+        usd<-data[i,2]*(btc.val-.0015*btc.val)
+        hd<-0
+        btc.val<-0
+        s.count<-s.count+1
+      }
+    }
+    allv<-rbind(allv,c(thr,usd,btc.val,btc.val*data[i,2],hd,s.count))
+  }
+  
+  #determine what the percent gain from model is
+  max.val<-max(allv[,2],allv[,4])
+  min.val<-min(allv[which(allv[,c(4)]>0),4],allv[which(allv[,c(2)]>0),2])
+  loc.min<-c(which(allv[,2]==min.val),which(allv[,4]==min.val))
+  min.s.count<-allv[loc.min[1],6]
+  loc.max<-c(which(allv[,2]==max.val),which(allv[,4]==max.val))
+  max.s.count<-allv[loc.max[1],6]
+  
+  #determine the maximum gain from the data
+  maxval<-data[1,2]
+  maxval.iter<-NULL
+  for(i in 2:length(score)){
+    maxval.new<-ifelse(data[(i),2]-data[(i-1),2]>0,data[(i),2]-data[(i-1),2],0)
+    maxval<-maxval+maxval.new
+    maxval.iter<-rbind(maxval.iter,c(maxval.new,maxval))
+  }
+  
+  
+  comp.mat<-rbind(comp.mat,c(g[j],min.s.count,allv[loc.min[1],1],allv[loc.min[length(loc.min)],1],min.val/1000,max.s.count,allv[loc.max[1],1],allv[loc.max[length(loc.max)],1],max.val/1000,maxval/data[1,2]))
+toc<-ifelse(j==length(g),Sys.time(),tic)
+}
+comp.mat
+toc-tic
+
+comp.mat[,(length(comp.mat[1,])-7):length(comp.mat[1,])]
+
+plot(1:36,comp.mat[,9],ylim=c(0,15))
+points(1:36,comp.mat[,5])
+colnames(comp.mat)<-c('g','loc.min lb','loc.min ub','min','loc.max lb','loc.max ub','max','max poss')
+comp.mat
+
+
+
+library(splines)
+plot(seq(1,366),data[,2])
+#moving average
+#2 day averages
+avs.1<-NULL
+for(i in 2:length(data[,2])){
+  new.av<-mean(data[(i-1):i,2])
+  avs.1<-c(avs.1,new.av)
+}
+#spline.1<-smooth.spline(seq(1.5,365.5,by=1),avs.1,df=20)
+#points(predict(spline.1),type="l",col="green",lwd=2)
+points(seq(2,366,by=1),avs.1,col="red",type="l")
+
+#three day average
+avs.3<-NULL
+for(i in 3:length(data[,2])){
+  new.av<-mean(data[(i-2):i,2])
+  avs.3<-c(avs.3,new.av)
+}
+length(avs.3)
+#spline.2<-smooth.spline(seq(3,366,by=1),avs.3,df=20)
+#points(predict(spline.2),type="l",col="blue",lwd=1)
+points(seq(3,366,by=1),avs.3,col="green",type="l")
+
+
+#10 day moving average
+avs.10<-NULL
+for(i in 10:length(data[,2])){
+  new.av<-mean(data[(i-9):i,2])
+  avs.10<-c(avs.10,new.av)
+}
+length(avs.10)
+#spline.3<-smooth.spline(seq(10,366,by=1),avs.10,df=20)
+#points(predict(spline.3),type="l",col="red",lwd=1)
+points(seq(10,366,by=1),avs.10,col="blue",type="l")
+
+#points matrix
+mov.avgs<-data[,2]
+mov.sd<-NULL
+mv.avg<-c(2,3,5,8,10,15,20)
+for(i in 1:length(mv.avg)){
+  avs.cur<-NULL
+  for(j in mv.avg[i]:length(data[,2])){
+    new.avg<-mean(data[(j-mv.avg[i]):j,2])
+    avs.cur<-c(avs.cur,new.avg)
+  }
+  mov.avgs<-cbind(mov.avgs,c(rep(mean(data[1:mv.avg[i],2]),mv.avg[i]-1),avs.cur))
+}
+
+
+rank.mat<-apply(mov.avgs,1,order)
+
+
+rank.mat<-t(rank.mat[c(8:1),])
+#create buy and sell points
+
+
